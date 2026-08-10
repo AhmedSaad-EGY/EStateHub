@@ -1,0 +1,2 @@
+using EstateHub.Application.CompanyProjects; using Microsoft.Extensions.DependencyInjection;
+namespace EstateHub.Infrastructure.CompanyProjects; public static class CompanyProjectManagementDependencyInjection { public static IServiceCollection AddInfrastructureCompanyProjectManagement(this IServiceCollection services) { services.AddScoped<ICompanyProjectManagementService,CompanyProjectManagementService>(); return services; } }
