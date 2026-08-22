@@ -19,6 +19,9 @@ public sealed class FileAssetConfiguration : IEntityTypeConfiguration<FileAsset>
             .HasMaxLength(255)
             .IsRequired();
 
+        builder.Property(file => file.OriginalFileName)
+            .HasMaxLength(255);
+
         builder.HasIndex(file => file.StorageKey)
             .HasDatabaseName("UX_FileAssets_StorageKey")
             .IsUnique();

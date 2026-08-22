@@ -139,6 +139,7 @@ internal sealed class CustomerSelfService(
         int pageSize,
         CancellationToken cancellationToken = default)
     {
+        var utcNow = _timeProvider.GetUtcNow();
         var customerProfileId = await GetCustomerProfileIdAsync(
             applicationUserId,
             cancellationToken);
@@ -150,7 +151,7 @@ internal sealed class CustomerSelfService(
 
         var publicListings = _dbContext.Set<Listing>()
             .AsNoTracking()
-            .WherePublic();
+            .WherePublic(utcNow);
 
         var favorites = _dbContext.Set<Favorite>()
             .AsNoTracking()
@@ -233,6 +234,7 @@ internal sealed class CustomerSelfService(
         Guid listingId,
         CancellationToken cancellationToken = default)
     {
+        var utcNow = _timeProvider.GetUtcNow();
         var customerProfileId = await GetCustomerProfileIdAsync(
             applicationUserId,
             cancellationToken);
@@ -244,7 +246,7 @@ internal sealed class CustomerSelfService(
 
         var listingIsPublic = await _dbContext.Set<Listing>()
             .AsNoTracking()
-            .WherePublic()
+            .WherePublic(utcNow)
             .AnyAsync(listing => listing.Id == listingId, cancellationToken);
 
         if (!listingIsPublic)
@@ -269,7 +271,7 @@ internal sealed class CustomerSelfService(
             Id = Guid.NewGuid(),
             CustomerProfileId = customerProfileId.Value,
             ListingId = listingId,
-            CreatedAt = _timeProvider.GetUtcNow()
+            CreatedAt = utcNow
         };
 
         _dbContext.Set<Favorite>().Add(favorite);

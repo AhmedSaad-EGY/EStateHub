@@ -8,7 +8,8 @@ using Microsoft.EntityFrameworkCore;
 namespace EstateHub.Infrastructure.Listings;
 
 public sealed class PublicListingQueryService(
-    EstateHubDbContext dbContext) : IPublicListingQueryService
+    EstateHubDbContext dbContext,
+    TimeProvider timeProvider) : IPublicListingQueryService
 {
     public async Task<PagedResult<ListingDirectoryItem>> GetListingsAsync(
         ListingDirectoryQuery query,
@@ -16,7 +17,8 @@ public sealed class PublicListingQueryService(
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        var listings = GetPublicListings();
+        var utcNow = timeProvider.GetUtcNow();
+        var listings = GetPublicListings(utcNow);
 
         if (query.Search is not null)
         {
@@ -187,7 +189,8 @@ public sealed class PublicListingQueryService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(slug);
 
-        var listing = await GetPublicListings()
+        var utcNow = timeProvider.GetUtcNow();
+        var listing = await GetPublicListings(utcNow)
             .Where(candidate => candidate.Slug == slug)
             .Select(candidate => new ListingDetailsHeader(
                 candidate.Id,
@@ -390,11 +393,11 @@ public sealed class PublicListingQueryService(
             projectNearbyPlaces);
     }
 
-    private IQueryable<Listing> GetPublicListings()
+    private IQueryable<Listing> GetPublicListings(DateTimeOffset utcNow)
     {
         return dbContext.Set<Listing>()
             .AsNoTracking()
-            .WherePublic();
+            .WherePublic(utcNow);
     }
 
     private static IOrderedQueryable<Listing> ApplyOrdering(

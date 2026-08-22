@@ -1990,6 +1990,10 @@ namespace EstateHub.Infrastructure.Persistence.Migrations
                     b.Property<int?>("Height")
                         .HasColumnType("int");
 
+                    b.Property<string>("OriginalFileName")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
 
@@ -2918,6 +2922,15 @@ namespace EstateHub.Infrastructure.Persistence.Migrations
                         .HasFilter("[NormalizedName] IS NOT NULL");
 
                     b.ToTable("AspNetRoles", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("30000000-0000-4000-8000-000000000001"),
+                            ConcurrencyStamp = "platform-admin-role-v1",
+                            Name = "PlatformAdmin",
+                            NormalizedName = "PLATFORMADMIN"
+                        });
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>

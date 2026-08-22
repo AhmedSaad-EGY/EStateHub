@@ -1,14 +1,17 @@
 using EstateHub.Application.Common;
 using EstateHub.Application.Companies;
+using EstateHub.Domain.Entities.Catalog;
 using EstateHub.Domain.Entities.Companies;
 using EstateHub.Domain.Enums;
+using EstateHub.Infrastructure.Listings;
 using EstateHub.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace EstateHub.Infrastructure.Companies;
 
 public sealed class PublicCompanyQueryService(
-    EstateHubDbContext dbContext) : IPublicCompanyQueryService
+    EstateHubDbContext dbContext,
+    TimeProvider timeProvider) : IPublicCompanyQueryService
 {
     public async Task<PagedResult<CompanyDirectoryItem>> GetCompaniesAsync(
         CompanyDirectoryQuery query,
@@ -16,6 +19,7 @@ public sealed class PublicCompanyQueryService(
     {
         ArgumentNullException.ThrowIfNull(query);
 
+        var utcNow = timeProvider.GetUtcNow();
         var companies = GetPublicCompanies();
 
         if (query.Search is not null)
@@ -59,8 +63,10 @@ public sealed class PublicCompanyQueryService(
                     company.Address.Location.Slug),
                 company.Projects.Count(project =>
                     project.ProjectStatus == ProjectStatus.Published),
-                company.Listings.Count(listing =>
-                    listing.PublicationStatus == ListingPublicationStatus.Published)))
+                dbContext.Set<Listing>()
+                    .AsNoTracking()
+                    .WherePublic(utcNow)
+                    .Count(listing => listing.CompanyId == company.Id)))
             .ToListAsync(cancellationToken);
 
         return new PagedResult<CompanyDirectoryItem>(
@@ -75,6 +81,8 @@ public sealed class PublicCompanyQueryService(
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(slug);
+
+        var utcNow = timeProvider.GetUtcNow();
 
         return GetPublicCompanies()
             .Where(company => company.Slug == slug)
@@ -106,8 +114,10 @@ public sealed class PublicCompanyQueryService(
                         company.Address.Location.Slug)),
                 company.Projects.Count(project =>
                     project.ProjectStatus == ProjectStatus.Published),
-                company.Listings.Count(listing =>
-                    listing.PublicationStatus == ListingPublicationStatus.Published)))
+                dbContext.Set<Listing>()
+                    .AsNoTracking()
+                    .WherePublic(utcNow)
+                    .Count(listing => listing.CompanyId == company.Id)))
             .SingleOrDefaultAsync(cancellationToken);
     }
 

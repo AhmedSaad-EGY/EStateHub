@@ -3,13 +3,15 @@ using EstateHub.Application.Projects;
 using EstateHub.Domain.Entities.Catalog;
 using EstateHub.Domain.Entities.Companies;
 using EstateHub.Domain.Enums;
+using EstateHub.Infrastructure.Listings;
 using EstateHub.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace EstateHub.Infrastructure.Projects;
 
 public sealed class PublicProjectQueryService(
-    EstateHubDbContext dbContext) : IPublicProjectQueryService
+    EstateHubDbContext dbContext,
+    TimeProvider timeProvider) : IPublicProjectQueryService
 {
     public async Task<PagedResult<ProjectDirectoryItem>?> GetProjectsAsync(
         string companySlug,
@@ -19,6 +21,7 @@ public sealed class PublicProjectQueryService(
         ArgumentException.ThrowIfNullOrWhiteSpace(companySlug);
         ArgumentNullException.ThrowIfNull(query);
 
+        var utcNow = timeProvider.GetUtcNow();
         var parentCompany = await dbContext.Set<Company>()
             .AsNoTracking()
             .Where(company =>
@@ -91,12 +94,10 @@ public sealed class PublicProjectQueryService(
                     project.Location.NameEn,
                     project.Location.NameAr,
                     project.Location.Slug),
-                project.Units
-                    .SelectMany(unit => unit.Listings)
-                    .Count(listing =>
-                        listing.PublicationStatus == ListingPublicationStatus.Published
-                        && listing.Company.Status == CompanyStatus.Active
-                        && listing.Company.VerifiedAt != null)))
+                dbContext.Set<Listing>()
+                    .AsNoTracking()
+                    .WherePublic(utcNow)
+                    .Count(listing => listing.Unit.ProjectId == project.Id)))
             .ToListAsync(cancellationToken);
 
         return new PagedResult<ProjectDirectoryItem>(
@@ -114,6 +115,7 @@ public sealed class PublicProjectQueryService(
         ArgumentException.ThrowIfNullOrWhiteSpace(companySlug);
         ArgumentException.ThrowIfNullOrWhiteSpace(projectSlug);
 
+        var utcNow = timeProvider.GetUtcNow();
         var project = await GetPublicProjects()
             .Where(candidate =>
                 candidate.DeveloperCompany.Slug == companySlug
@@ -129,12 +131,10 @@ public sealed class PublicProjectQueryService(
                     .Where(media => media.IsCover)
                     .Select(media => (Guid?)media.FileAssetId)
                     .FirstOrDefault(),
-                candidate.Units
-                    .SelectMany(unit => unit.Listings)
-                    .Count(listing =>
-                        listing.PublicationStatus == ListingPublicationStatus.Published
-                        && listing.Company.Status == CompanyStatus.Active
-                        && listing.Company.VerifiedAt != null),
+                dbContext.Set<Listing>()
+                    .AsNoTracking()
+                    .WherePublic(utcNow)
+                    .Count(listing => listing.Unit.ProjectId == candidate.Id),
                 new ProjectDeveloperSummary(
                     candidate.DeveloperCompany.Id,
                     candidate.DeveloperCompany.Slug,
