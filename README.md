@@ -1,380 +1,632 @@
-# EstateHub
+# 🏠 EstateHub
 
-> A production-oriented real-estate marketplace backend for property discovery, company operations, bookings, CRM, subscriptions, promotions, billing, file delivery, and platform moderation.
+> Production-oriented real estate marketplace backend built with **ASP.NET Core**, **SQL Server**, and a Clean Architecture-inspired design.
 
-[![.NET](https://img.shields.io/badge/.NET-10.0.302-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
-[![ASP.NET Core](https://img.shields.io/badge/ASP.NET_Core-Web_API-512BD4?logo=dotnet&logoColor=white)](https://learn.microsoft.com/aspnet/core/)
-[![EF Core](https://img.shields.io/badge/EF_Core-10.0.10-512BD4?logo=dotnet&logoColor=white)](https://learn.microsoft.com/ef/core/)
-[![SQL Server](https://img.shields.io/badge/SQL_Server-Relational_DB-CC2927?logo=microsoftsqlserver&logoColor=white)](https://www.microsoft.com/sql-server)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![.NET](https://img.shields.io/badge/.NET-10-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![ASP.NET Core](https://img.shields.io/badge/ASP.NET_Core-Web_API-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://learn.microsoft.com/aspnet/core/)
+[![EF Core](https://img.shields.io/badge/EF_Core-10.0.10-512BD4?style=flat-square&logo=nuget&logoColor=white)](https://learn.microsoft.com/ef/core/)
+[![SQL Server](https://img.shields.io/badge/SQL_Server-Database-CC2927?style=flat-square&logo=microsoftsqlserver&logoColor=white)](https://www.microsoft.com/sql-server)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
-[Live frontend](https://e-statehub.vercel.app) · [Deployed API](https://estatehub.runasp.net) · [API reference](docs/API_MASTER_REFERENCE.md) · [Endpoint matrix](docs/API_ENDPOINT_MATRIX.md)
+### 🔗 Links
+
+- **Live Frontend:** https://e-statehub.vercel.app
+- **Deployed API:** https://estatehub.runasp.net
+- **API Reference:** [API_MASTER_REFERENCE.md](API_MASTER_REFERENCE.md)
+- **Endpoint Matrix:** [API_ENDPOINT_MATRIX.md](API_ENDPOINT_MATRIX.md)
 
 ---
 
-## Table of contents
+## 📌 Overview
 
-- [Overview](#overview)
-- [What the system covers](#what-the-system-covers)
-- [Architecture](#architecture)
-- [Request flow](#request-flow)
-- [Patterns and engineering decisions](#patterns-and-engineering-decisions)
-- [Technology stack](#technology-stack)
-- [Domain and persistence](#domain-and-persistence)
-- [Authentication, authorization, and tenancy](#authentication-authorization-and-tenancy)
-- [API surface](#api-surface)
-- [Project structure](#project-structure)
-- [Getting started](#getting-started)
-- [Configuration](#configuration)
-- [Database migrations](#database-migrations)
-- [Running the API](#running-the-api)
-- [Testing](#testing)
-- [File storage and delivery](#file-storage-and-delivery)
-- [Operational and security notes](#operational-and-security-notes)
-- [Documentation](#documentation)
-- [Current limitations and honest caveats](#current-limitations-and-honest-caveats)
-- [Contributing](#contributing)
-- [License](#license)
+**EstateHub** is a multi-tenant real estate platform backend designed around real business workflows rather than simple CRUD operations.
 
-## Overview
+The platform supports three main groups:
 
-EstateHub is a multi-tenant real-estate platform backend built with ASP.NET Core and SQL Server. It serves three distinct audiences:
+- **Customers and public visitors** searching for companies, projects, properties, listings, reviews, and viewing opportunities.
+- **Real estate companies** managing employees, permissions, projects, units, listings, leads, bookings, subscriptions, promotions, and billing.
+- **Platform administrators** reviewing company applications and moderating platform-level operations.
 
-1. **Public visitors and customers** discover verified companies, projects, units, listings, viewing slots, reviews, subscription plans, and promotion packages.
-2. **Company employees** manage the current company's profile, roles, employees, projects, units, listings, bookings, leads, promotions, subscriptions, and billing through database-backed permissions.
-3. **Platform administrators** review company applications and moderate company reviews through a separate platform-level authorization policy.
+The backend currently exposes a large REST API surface with **164 distinct HTTP verb/route pairs across 32 controllers**.
 
-The backend deliberately keeps transport concerns, application contracts, business data, and infrastructure code separated. It exposes **164 distinct HTTP verb/route pairs** across **32 controllers**, with a source-reconciled API reference under [`docs/`](docs/).
+The project focuses heavily on:
 
-## What the system covers
+- Multi-tenant authorization
+- Database-backed permissions
+- Secure authentication
+- Business workflow modeling
+- Optimistic concurrency
+- Transactional operations
+- Efficient EF Core querying
+- API contract design
+- Production-oriented configuration
+
+---
+
+# ✨ Key Engineering Highlights
+
+### 🔐 Multi-Tenant Authorization
+
+Company access is resolved from the authenticated user's active employee membership.
+
+The backend **does not trust a company ID sent by the client** to determine tenant scope.
+
+Each protected company request validates the complete authorization chain:
+
+```text
+Authenticated User
+        ↓
+Active Employee Membership
+        ↓
+Active & Verified Company
+        ↓
+Active Company Role
+        ↓
+Assigned Permission
+        ↓
+Requested Operation
+```
+
+Permission changes can affect the next request because authorization is resolved from the database rather than being permanently embedded inside long-lived JWT claims.
+
+---
+
+### 🛡️ Fine-Grained RBAC
+
+EstateHub uses policy-based authorization with a stable permission catalog.
+
+Examples:
+
+```text
+CompanyPermission:company.read
+CompanyPermission:company.manage
+
+CompanyPermission:employees.read
+CompanyPermission:employees.manage
+
+CompanyPermission:projects.read
+CompanyPermission:projects.manage
+
+CompanyPermission:listings.read
+CompanyPermission:listings.manage
+
+CompanyPermission:bookings.read
+CompanyPermission:bookings.manage
+
+CompanyPermission:billing.read
+CompanyPermission:billing.manage
+```
+
+Platform administration is separated from company-level permissions through a dedicated:
+
+```text
+PlatformAdmin
+```
+
+role.
+
+---
+
+### 🔑 Authentication & Session Management
+
+The authentication system includes:
+
+- ASP.NET Core Identity
+- JWT bearer access tokens
+- Persisted refresh sessions
+- Refresh-token rotation and revocation
+- Email confirmation
+- Password recovery
+- Account lockout protection
+- Unique confirmed email addresses
+- Short-lived access tokens
+- Separate "Remember Me" refresh lifetime
+
+Authentication endpoints are protected by dedicated rate-limiting policies.
+
+---
+
+### 🚦 Authentication Rate Limiting
+
+Different sensitive operations use different fixed-window limits.
+
+| Operation | Limit | Window |
+|---|---:|---:|
+| Registration | 5 | 10 minutes |
+| Login | 10 | 1 minute |
+| Email Delivery | 3 | 15 minutes |
+| Token Lifecycle | 30 | 1 minute |
+| Verification | 10 | 10 minutes |
+
+This prevents one global rate limit from treating every authentication operation the same way.
+
+---
+
+### ⚡ Projection-First EF Core Queries
+
+Read-heavy endpoints avoid loading unnecessary entity graphs.
+
+The backend uses:
+
+- `AsNoTracking()`
+- Selective projections
+- Async EF Core queries
+- Pagination
+- Cancellation tokens
+- Purpose-specific query services
+
+This keeps read models separate from persistence entities and reduces unnecessary database and memory overhead.
+
+---
+
+### 🔄 Optimistic Concurrency
+
+Mutable business records use SQL Server:
+
+```text
+rowversion
+```
+
+for optimistic concurrency.
+
+Row versions are transported through the HTTP API as Base64 values.
+
+When a client attempts to update stale data, the API can return:
+
+```text
+409 Conflict
+```
+
+instead of silently overwriting a newer change.
+
+---
+
+### 💳 Transactional Business Workflows
+
+Operations that involve multiple state changes use explicit database transactions when partial completion would leave the system inconsistent.
+
+Examples include workflows around:
+
+- Billing
+- Subscriptions
+- Promotions
+- Bookings
+- Company operations
+- Listing lifecycle changes
+
+---
+
+### 📦 Secure File Handling
+
+EstateHub contains a controlled file-storage workflow for images and PDF documents.
+
+The implementation includes:
+
+- Configurable file-size limits
+- Content-type validation
+- Magic-byte validation
+- Server-generated storage keys
+- Owner-only private-file access
+- Controlled public-image access
+- Guarded asset deletion
+- HTTPS-only external image redirects
+
+Potentially dangerous schemes such as:
+
+```text
+javascript:
+file:
+data:
+http:
+```
+
+are rejected for externally redirected assets.
+
+---
+
+# 🧩 Platform Capabilities
 
 | Area | Capabilities |
 |---|---|
-| Identity and accounts | Customer registration, email confirmation, login, refresh-token rotation, logout, password recovery, and authenticated profile management |
-| Public marketplace | Company directory, projects, listing search and details, promoted listings, viewing slots, reviews, and catalog lookups |
-| Customer workspace | Favorites, saved searches, viewing bookings, reviews, notifications, company applications, and private file ownership |
-| Company access | Current-company context resolved from the authenticated employee membership; no client-supplied tenant ID is trusted |
-| Company administration | Company profile, employees, roles, and an 18-code permission catalog |
-| Inventory | Projects, amenities, media, nearby places, units, payment plans, listings, and listing lifecycle management |
-| Operations | Viewing-slot scheduling, booking workflows, employee assignment, lead CRM, and customer conversion |
-| Commercial features | Subscription plans, company subscriptions, promotion packages, listing promotions, invoices, invoice lines, and booking-charge settlement |
-| Platform operations | Company-application review and company-review moderation using a dedicated `PlatformAdmin` role |
-| Files | Secure image/PDF upload, owner-only metadata and content, anonymous public-image delivery, local storage, and HTTPS external-image redirects |
+| **Identity** | Registration, login, email confirmation, refresh sessions, password recovery, profile management |
+| **Companies** | Company profiles, verification, applications and company management |
+| **Employees** | Employee membership, roles and permission assignment |
+| **Catalog** | Locations, currencies, amenities and property-related lookup data |
+| **Projects** | Real estate projects, media, amenities and nearby locations |
+| **Units** | Unit inventory, types and payment-plan relationships |
+| **Listings** | Property listings, lifecycle management, promotion and search |
+| **Discovery** | Public projects, companies, listings and promoted content |
+| **Customers** | Favorites, saved searches, profile operations and notifications |
+| **Viewing** | Viewing slots and booking workflows |
+| **CRM** | Leads, notes, assignment and customer-conversion workflows |
+| **Reviews** | Reviews and platform moderation |
+| **Subscriptions** | Subscription plans and company subscriptions |
+| **Promotions** | Promotion packages and promoted listings |
+| **Billing** | Invoices, invoice lines and commercial workflows |
+| **Files** | Private assets, public images and controlled file delivery |
+| **Platform Admin** | Company-application review and review moderation |
 
-Features that have no authoritative Domain source are not fabricated. The API does not invent AI scores, ROI figures, market valuations, or recommendation data.
+---
 
-## Architecture
+# 🏗️ Architecture
 
-EstateHub uses a **Clean Architecture-inspired, four-layer structure** with feature-oriented slices inside each layer.
+EstateHub uses a **Clean Architecture-inspired four-layer structure**.
 
 ```mermaid
 flowchart LR
     Client[Web / Mobile Client]
-    API[EstateHub.Api<br/>Controllers, HTTP contracts,<br/>middleware, authorization]
-    APP[EstateHub.Application<br/>Use-case contracts,<br/>commands, results, DTO models]
-    INFRA[EstateHub.Infrastructure<br/>EF Core, Identity, JWT,<br/>SMTP, storage, service implementations]
-    DOMAIN[EstateHub.Domain<br/>Entities and enums]
+
+    API[EstateHub.Api<br/>HTTP / Controllers / Authorization]
+
+    APP[EstateHub.Application<br/>Use Cases / Contracts / Models]
+
+    INFRA[EstateHub.Infrastructure<br/>EF Core / Identity / JWT / Email / Files]
+
+    DOMAIN[EstateHub.Domain<br/>Entities / Enums]
+
     DB[(SQL Server)]
-    SMTP[SMTP Provider]
-    FILES[(Local File Storage)]
-    CDN[External HTTPS Images]
 
     Client --> API
+
     API --> APP
     API --> INFRA
+
     INFRA --> APP
-    APP --> DOMAIN
     INFRA --> DOMAIN
+
+    APP --> DOMAIN
+
     INFRA --> DB
-    INFRA --> SMTP
-    INFRA --> FILES
-    API -. redirect .-> CDN
 ```
 
-### Layer responsibilities
-
-| Project | Responsibility | May depend on |
-|---|---|---|
-| `EstateHub.Domain` | Entities and business enums. No ASP.NET Core, EF Core, SQL Server, or Identity dependencies. | Nothing outside the base class library |
-| `EstateHub.Application` | Framework-independent use-case interfaces, commands, query models, and operation results. | `EstateHub.Domain` |
-| `EstateHub.Infrastructure` | EF Core persistence, Identity stores, JWT generation, SMTP, local file storage, and concrete application-service implementations. | `EstateHub.Application`, `EstateHub.Domain` |
-| `EstateHub.Api` | Controllers, HTTP request/response contracts, model validation, CORS, rate limiting, Swagger, and policy wiring. It is the composition root. | `EstateHub.Application`, `EstateHub.Infrastructure` |
-
-The architecture is intentionally practical rather than ceremonial: the API references Infrastructure only to compose the application, while controllers consume Application interfaces instead of querying `EstateHubDbContext` directly.
-
-## Request flow
-
-An authenticated company operation follows this path:
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant Middleware as ASP.NET Middleware
-    participant Policy as Permission Handler
-    participant Controller
-    participant Service as Application Interface
-    participant Infra as Infrastructure Service
-    participant DB as SQL Server
-
-    Client->>Middleware: HTTP request + Bearer token
-    Middleware->>Middleware: CORS, rate limit, JWT validation
-    Middleware->>Policy: Authorize required permission
-    Policy->>Infra: Resolve subject and current company scope
-    Infra->>DB: Validate employee, company, role, permission chain
-    DB-->>Policy: Authorized scope or no match
-    Policy-->>Controller: Continue or return 401/403
-    Controller->>Service: Validated command/query + CancellationToken
-    Service->>Infra: Runtime implementation
-    Infra->>DB: Projected query or transactional mutation
-    DB-->>Infra: Result
-    Infra-->>Controller: Framework-independent operation result
-    Controller-->>Client: DTO / ProblemDetails / file response
-```
-
-Public endpoints skip the authenticated tenant-resolution steps but still enforce publication and eligibility rules in their query services.
-
-## Patterns and engineering decisions
-
-### Feature-oriented application services
-
-Each business area exposes focused interfaces in Application and implements them in Infrastructure. Examples include company projects, listings, viewing bookings, subscriptions, files, notifications, and platform moderation.
-
-This is **not** a generic-repository architecture. EF Core already provides repository-like `DbSet<T>` access and unit-of-work behavior through `DbContext`; adding a generic repository would mostly duplicate it. EstateHub instead uses use-case-specific services and projections.
-
-### Projection-first reads
-
-Read paths use asynchronous EF Core queries, `AsNoTracking`, selective projections, pagination, and cancellation tokens. Large entity graphs are not loaded merely to shape an API response.
-
-### Explicit write workflows
-
-Multi-step operations use explicit transactions where atomicity matters. State transitions, tenant checks, uniqueness rules, and rowversion comparisons are handled before committing.
-
-### Optimistic concurrency
-
-Mutable business records use SQL Server `rowversion`. The HTTP contract transports rowversions as Base64 strings, allowing stale writes to return a conflict instead of silently overwriting newer data.
-
-### Explicit enum transport
-
-Public enum values are converted through focused mappings. The project does not enable a global `JsonStringEnumConverter`, which keeps each API contract deliberate and rejects unsupported values explicitly.
-
-### Problem-oriented HTTP responses
-
-Controllers use standard status codes and `ProblemDetails` / `ValidationProblemDetails` rather than leaking exceptions or persistence details. Unavailable public resources generally use generic `404` responses so hidden lifecycle or eligibility states are not disclosed.
-
-### Database-backed authorization
-
-Company permissions are not embedded in long-lived JWT claims. Permission revocation, employee suspension, and company suspension can affect the next request because authorization resolves the active chain from the database.
-
-## Technology stack
-
-| Component | Technology |
-|---|---|
-| Runtime | .NET SDK `10.0.302`, target framework `net10.0` |
-| API | ASP.NET Core Web API |
-| Persistence | Entity Framework Core `10.0.10` |
-| Database | Microsoft SQL Server |
-| Identity | ASP.NET Core Identity with `Guid` keys |
-| Authentication | JWT bearer access tokens and persisted refresh sessions |
-| Authorization | ASP.NET Core policy-based authorization with custom providers and handlers |
-| Email | MailKit `4.17.0`, SMTP with required STARTTLS |
-| API documentation | Swashbuckle `10.2.3` / Swagger UI |
-| Tests | xUnit, `Microsoft.AspNetCore.Mvc.Testing`, and SQL Server integration databases |
-| File storage | Local filesystem abstraction plus controlled HTTPS external-image redirects |
-
-## Domain and persistence
-
-The current backend contains:
-
-- **49 Domain entities**
-- **33 Domain enums**
-- **49 Fluent API entity configurations**
-- **4 logical EF Core migrations**
-- **1 model snapshot**
-
-### Domain areas
-
-| Area | Examples |
-|---|---|
-| Companies and access | `Company`, `CompanyEmployee`, `CompanyRole`, `Permission`, `CompanyApplication`, `FileAsset` |
-| Catalog and inventory | `Location`, `Currency`, `Amenity`, `UnitType`, `Project`, `Unit`, `Listing`, `PaymentPlan` |
-| Discovery | Listing media, amenities, nearby places, favorites, saved searches, views, and reviews |
-| Bookings and CRM | Viewing slots, viewing bookings, booking charges, leads, notes, and assignments |
-| Billing and growth | Subscription plans, company subscriptions, promotion packages, listing promotions, invoices, and invoice lines |
-| Users and security | Identity user data, refresh sessions, security events, and notifications |
-
-The complete model is available as an editable draw.io diagram: [`ERD/ESTATEHUB_MVP_ERD_IMPLEMENTATION_READY.drawio`](ERD/ESTATEHUB_MVP_ERD_IMPLEMENTATION_READY.drawio).
-
-## Authentication, authorization, and tenancy
-
-### Authentication
-
-- Access tokens are signed with HMAC SHA-256.
-- JWT issuer, audience, signature, lifetime, and algorithm are validated.
-- The signing key must contain at least 32 UTF-8 bytes.
-- Inbound claim remapping is disabled; the authenticated user ID is read from the exact `sub` claim.
-- Refresh sessions are persisted and support rotation/revocation.
-- Identity requires unique and confirmed email addresses.
-- Passwords require at least eight characters with uppercase, lowercase, and a digit.
-- Accounts are locked for five minutes after five failed access attempts.
-
-### Company permissions
-
-Company authorization uses policies in this format:
+## Dependency Direction
 
 ```text
-CompanyPermission:<permission-code>
+EstateHub.Api
+    ├── EstateHub.Application
+    └── EstateHub.Infrastructure
+
+EstateHub.Infrastructure
+    ├── EstateHub.Application
+    └── EstateHub.Domain
+
+EstateHub.Application
+    └── EstateHub.Domain
+
+EstateHub.Domain
+    └── No project dependencies
 ```
 
-There are exactly 18 stable permission codes: read/manage pairs for company profile, employees, roles, projects, units, listings, bookings, leads, and billing.
+### `EstateHub.Domain`
 
-The authorization handler validates all of the following on each request:
+Contains:
 
-- authenticated `sub` claim is a valid non-empty `Guid`;
-- employee membership is active;
-- company is active and verified;
-- role assignment and permission chain are active and not revoked;
-- permission code matches exactly using ordinal comparison.
+- Domain entities
+- Business enums
 
-The effective company is never accepted from route, query string, or request body.
+It does not depend on:
 
-### Platform administration
+- ASP.NET Core
+- Entity Framework Core
+- SQL Server
+- Identity
+- Infrastructure
 
-Platform operations use a separate deterministic Identity role named `PlatformAdmin`. Company permissions do not grant platform access, and platform access does not imply membership in any company.
+---
 
-## API surface
+### `EstateHub.Application`
 
-The current source contains **164 distinct HTTP verb/route pairs with zero duplicates**:
+Contains framework-independent application contracts such as:
 
-| Access class | Route count | Typical prefixes |
-|---|---:|---|
-| Anonymous/public | 26 | `/api/auth`, `/api/catalog`, `/api/companies`, `/api/listings`, `/api/files` |
-| Authenticated customer/company | 127 | `/api/me`, `/api/company` |
-| Platform administrator | 11 | `/api/platform` |
-| **Total** | **164** | 32 controllers |
+- Use-case interfaces
+- Commands
+- Query models
+- DTO models
+- Operation results
 
-Rather than duplicating 164 routes here, the repository keeps source-reconciled references:
+Application depends only on:
 
-- [`API_MASTER_REFERENCE.md`](docs/API_MASTER_REFERENCE.md) — endpoint-by-endpoint behavior, validation, persistence, side effects, and examples.
-- [`API_ENDPOINT_MATRIX.md`](docs/API_ENDPOINT_MATRIX.md) — compact route, access, policy, input, success, and error matrix.
-- [`API_CONTRACTS_REFERENCE.md`](docs/API_CONTRACTS_REFERENCE.md) — reusable request/response contracts, validation messages, and all Domain enums.
+```text
+EstateHub.Domain
+```
 
-### HTTP behavior
+---
 
-| Status | Meaning |
+### `EstateHub.Infrastructure`
+
+Contains concrete implementations for:
+
+- Entity Framework Core
+- SQL Server
+- ASP.NET Core Identity
+- JWT authentication
+- SMTP email
+- File storage
+- Company services
+- Listing services
+- Billing
+- Subscriptions
+- Notifications
+- Promotions
+- Projects
+- Viewing bookings
+- Platform operations
+
+---
+
+### `EstateHub.Api`
+
+Acts as the HTTP layer and composition root.
+
+It contains:
+
+- Controllers
+- HTTP contracts
+- CORS configuration
+- Authentication wiring
+- Authorization policies
+- Custom authorization handlers
+- Rate limiting
+- Swagger
+- Dependency registration
+
+Controllers work against application-level contracts rather than directly querying the database.
+
+---
+
+# 🔁 Typical Request Flow
+
+A protected company request follows roughly this flow:
+
+```text
+HTTP Request
+     ↓
+CORS / Rate Limiting
+     ↓
+JWT Authentication
+     ↓
+Authorization Policy
+     ↓
+Resolve User + Company Membership
+     ↓
+Validate Role + Permission
+     ↓
+Controller
+     ↓
+Application Contract
+     ↓
+Infrastructure Implementation
+     ↓
+EF Core / SQL Server
+     ↓
+Result
+     ↓
+HTTP Response
+```
+
+This design keeps:
+
+```text
+HTTP concerns
+Business use cases
+Persistence
+Authentication infrastructure
+Domain data
+```
+
+separated from one another.
+
+---
+
+# 🗄️ Persistence Design
+
+EstateHub uses:
+
+```text
+Entity Framework Core 10
+SQL Server
+```
+
+with Fluent API configurations.
+
+Important persistence practices include:
+
+- Explicit entity configuration
+- SQL Server constraints
+- Async queries
+- Pagination
+- Selective projections
+- `AsNoTracking()` for read paths
+- Explicit transactions
+- Optimistic concurrency
+- Migration-based schema management
+- Cancellation-token propagation
+
+The domain contains a substantial relational model covering companies, users, listings, projects, bookings, CRM, billing and platform operations.
+
+---
+
+# 🌐 API Design
+
+EstateHub exposes REST endpoints across three major access classes.
+
+| Access Level | Examples |
 |---|---|
-| `200 OK` | Successful query or update returning a representation |
-| `201 Created` | Resource created successfully |
-| `202 Accepted` | Enumeration-safe workflow accepted, such as selected email operations |
-| `204 No Content` | Successful command with no response body |
-| `400 Bad Request` | Binding, validation, or invalid transition error |
-| `401 Unauthorized` | Missing, invalid, or expired authentication |
-| `403 Forbidden` | Authenticated principal lacks the current permission or platform role |
-| `404 Not Found` | Resource is missing or intentionally unavailable to the caller |
-| `409 Conflict` | Uniqueness, state, rowversion, or concurrent-write conflict |
-| `429 Too Many Requests` | Authentication rate limit exceeded |
-| `503 Service Unavailable` | Required external delivery dependency failed |
+| **Public** | Authentication, catalogs, public companies, projects and listings |
+| **Authenticated** | Customer workspace and company operations |
+| **Platform Admin** | Company-application review and platform moderation |
 
-## Project structure
+Common response statuses include:
+
+| Status | Usage |
+|---|---|
+| `200 OK` | Successful query/update |
+| `201 Created` | Resource created |
+| `202 Accepted` | Accepted workflow |
+| `204 No Content` | Successful command without response body |
+| `400 Bad Request` | Validation or invalid transition |
+| `401 Unauthorized` | Authentication required or invalid |
+| `403 Forbidden` | Insufficient permission |
+| `404 Not Found` | Missing or unavailable resource |
+| `409 Conflict` | State, uniqueness or concurrency conflict |
+| `429 Too Many Requests` | Rate limit exceeded |
+| `503 Service Unavailable` | External dependency failure |
+
+Expected business failures are converted into HTTP responses rather than exposing infrastructure exceptions directly.
+
+---
+
+# 🛠️ Technology Stack
+
+| Category | Technology |
+|---|---|
+| Language | C# |
+| Runtime | .NET 10 |
+| API | ASP.NET Core Web API |
+| ORM | Entity Framework Core `10.0.10` |
+| Database | Microsoft SQL Server |
+| Identity | ASP.NET Core Identity |
+| Authentication | JWT Bearer |
+| Authorization | Policy-based authorization + custom handlers |
+| Email | MailKit `4.17.0` |
+| API Documentation | Swagger / Swashbuckle `10.2.3` |
+| File Storage | Local filesystem abstraction |
+| Architecture | Clean Architecture-inspired layered backend |
+
+---
+
+# 📁 Project Structure
 
 ```text
 EstateHub/
+│
 ├── src/
+│   │
 │   ├── EstateHub.Domain/
 │   │   ├── Entities/
 │   │   └── Enums/
+│   │
 │   ├── EstateHub.Application/
-│   │   └── <feature>/              # Interfaces, commands, models, results
-│   ├── EstateHub.Infrastructure/
-│   │   ├── <feature>/              # EF-backed implementations
+│   │   ├── Accounts/
 │   │   ├── Authentication/
+│   │   ├── Billing/
+│   │   ├── CatalogLookups/
+│   │   ├── Communications/
+│   │   └── ...
+│   │
+│   ├── EstateHub.Infrastructure/
+│   │   ├── Authentication/
+│   │   ├── Identity/
+│   │   ├── Persistence/
 │   │   ├── Email/
 │   │   ├── Files/
-│   │   ├── Identity/
-│   │   └── Persistence/
-│   │       ├── Configurations/
-│   │       └── Migrations/
+│   │   ├── Companies/
+│   │   ├── Listings/
+│   │   ├── Projects/
+│   │   ├── Subscriptions/
+│   │   ├── Notifications/
+│   │   └── ...
+│   │
 │   └── EstateHub.Api/
 │       ├── Authorization/
 │       ├── Contracts/
 │       ├── Controllers/
 │       ├── RateLimiting/
-│       └── Program.cs
-├── tests/
-│   └── EstateHub.IntegrationTests/
-├── docs/
-├── ERD/
+│       ├── Program.cs
+│       └── appsettings.json
+│
+├── API_MASTER_REFERENCE.md
+├── API_ENDPOINT_MATRIX.md
+├── API_CONTRACTS_REFERENCE.md
+├── API_INTEGRATION_AND_TESTING_GUIDE.md
+├── API_DOCUMENTATION_FINDINGS.md
+├── EstateHub_Backend_Project_Handoff.md
 ├── EstateHub.slnx
 ├── global.json
+├── LICENSE
 └── README.md
 ```
 
-## Getting started
+---
 
-### Prerequisites
+# 🚀 Getting Started
 
-- [.NET SDK 10.0.302](https://dotnet.microsoft.com/download)
-- SQL Server reachable by the API
-- `dotnet-ef` `10.0.10` for migration commands
-- An SMTP account that supports STARTTLS
-- Git
+## Prerequisites
 
-Verify the selected toolchain:
-
-```powershell
-dotnet --version
-dotnet ef --version
-```
-
-Expected versions:
+You need:
 
 ```text
-10.0.302
-Entity Framework Core .NET Command-line Tools 10.0.10
+.NET 10 SDK
+SQL Server
+Git
 ```
 
-Clone and restore:
+EF Core CLI is also recommended:
 
-```powershell
+```bash
+dotnet tool install --global dotnet-ef
+```
+
+---
+
+## Clone the Repository
+
+```bash
 git clone https://github.com/AhmedSaad-EGY/EStateHub.git
-Set-Location EStateHub
+cd EStateHub
+```
+
+---
+
+## Restore Dependencies
+
+```bash
 dotnet restore EstateHub.slnx
 ```
 
-## Configuration
+---
 
-The API validates critical options at startup and fails fast when required configuration is absent or invalid. Keep credentials out of committed files.
+# ⚙️ Configuration
 
-### Required values
+Secrets are intentionally not committed to source control.
 
-| Key | Purpose | Rule |
-|---|---|---|
-| `ConnectionStrings:DefaultConnection` | SQL Server access | Required, non-blank |
-| `Jwt:SigningKey` | HMAC SHA-256 signing | At least 32 UTF-8 bytes |
-| `Jwt:Issuer` | JWT issuer | Required |
-| `Jwt:Audience` | JWT audience | Required |
-| `Email:Username` | SMTP authentication | Required |
-| `Email:Password` | SMTP authentication | Required |
-| `Email:FromAddress` | Sender mailbox | Valid email address |
-| `Frontend:BaseUrl` | Confirmation/reset links | Absolute HTTP or HTTPS URL |
+The application expects values including:
 
-Issuer, audience, token lifetimes, SMTP host/port, legal-policy versions, rate limits, storage limits, and allowed CORS origins already have non-secret defaults in `appsettings.json`.
+```text
+ConnectionStrings:DefaultConnection
 
-### Development secrets
+Jwt:SigningKey
+Jwt:Issuer
+Jwt:Audience
 
-Use ASP.NET Core User Secrets for local credentials:
+Email:Username
+Email:Password
+Email:FromAddress
+
+Frontend:BaseUrl
+```
+
+For local development, ASP.NET Core User Secrets can be used.
 
 ```powershell
 $apiProject = "src/EstateHub.Api/EstateHub.Api.csproj"
 
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "<SQL_SERVER_CONNECTION_STRING>" --project $apiProject
-dotnet user-secrets set "Jwt:SigningKey" "<RANDOM_SECRET_WITH_AT_LEAST_32_BYTES>" --project $apiProject
+
+dotnet user-secrets set "Jwt:SigningKey" "<JWT_SIGNING_KEY_AT_LEAST_32_BYTES>" --project $apiProject
+
 dotnet user-secrets set "Email:Username" "<SMTP_USERNAME>" --project $apiProject
+
 dotnet user-secrets set "Email:Password" "<SMTP_PASSWORD>" --project $apiProject
-dotnet user-secrets set "Email:FromAddress" "<NO_REPLY_ADDRESS>" --project $apiProject
+
+dotnet user-secrets set "Email:FromAddress" "<FROM_EMAIL>" --project $apiProject
+
 dotnet user-secrets set "Frontend:BaseUrl" "http://localhost:5173" --project $apiProject
 ```
 
-For deployed environments, provide the same keys through the hosting platform's secret/configuration system. Environment-variable keys use double underscores, for example:
+For deployed environments, use the hosting platform's secret-management system.
+
+Equivalent environment-variable names include:
 
 ```text
 ConnectionStrings__DefaultConnection
@@ -385,43 +637,27 @@ Email__FromAddress
 Frontend__BaseUrl
 ```
 
-Never commit production credentials, export User Secrets, or pass a database password on a shared command line.
+---
 
-### CORS
+# 🌍 CORS
 
-`Cors:AllowedOrigins` must contain one or more exact absolute origins without trailing slashes. The checked-in defaults currently allow:
+The API validates configured origins during startup.
+
+The checked-in development configuration currently allows:
 
 ```text
 http://localhost:5173
-https://e-statehub.vercel.app
 ```
 
-The policy allows all request headers and methods but does not enable arbitrary origins.
+Production origins should be supplied through deployment configuration.
 
-### Authentication rate limits
+Origins must be valid absolute origins without trailing slashes.
 
-Authentication endpoints use fixed-window, IP-partitioned policies:
+---
 
-| Policy | Permit limit | Window |
-|---|---:|---:|
-| Registration | 5 | 10 minutes |
-| Login | 10 | 1 minute |
-| Email delivery | 3 | 15 minutes |
-| Token lifecycle | 30 | 1 minute |
-| Verification | 10 | 10 minutes |
+# 🗃️ Database Migrations
 
-Rejected requests return `429` with `application/problem+json` and `Retry-After` when available.
-
-## Database migrations
-
-The current migration chain is:
-
-1. `20260807115808_InitialCreate`
-2. `20260809220431_SeedCompanyPermissionCatalog`
-3. `20260814114249_AddFileAssetOriginalFileName`
-4. `20260815110144_SeedPlatformAdminRole`
-
-After reviewing the schema warning below and configuring the target connection, migrations are normally applied with:
+Apply the EF Core migration chain with:
 
 ```powershell
 dotnet ef database update `
@@ -430,7 +666,7 @@ dotnet ef database update `
   --context EstateHubDbContext
 ```
 
-Check model parity with:
+You can check for model changes with:
 
 ```powershell
 dotnet ef migrations has-pending-model-changes `
@@ -439,151 +675,192 @@ dotnet ef migrations has-pending-model-changes `
   --context EstateHubDbContext
 ```
 
-> [!WARNING]
-> The current source maps nullable `FileAsset.ExternalUrl` as `nvarchar(2048)`, while the four committed migrations do not create that column. The deployed database received it through a controlled manual schema change. A fresh database created from migrations alone will therefore not match the current runtime model. Reconcile this with a reviewed migration before provisioning a new environment, and do not blindly add the column to an existing database where it is already present.
+---
 
-## Running the API
+# ▶️ Running the API
 
-Run from the repository root:
-
-```powershell
+```bash
 dotnet run --project src/EstateHub.Api
 ```
 
-The launch profile opens Swagger by default. Swagger is available at:
+Swagger is available from the API's:
 
 ```text
-https://localhost:<port>/swagger
+/swagger
 ```
 
-Build without starting the API:
+endpoint.
 
-```powershell
+Build the complete solution with:
+
+```bash
 dotnet build EstateHub.slnx
 ```
 
-## Testing
+---
 
-Run the integration suite:
+# 📚 Documentation
 
-```powershell
-dotnet test tests/EstateHub.IntegrationTests/EstateHub.IntegrationTests.csproj
-```
+The repository contains detailed documentation for deeper technical inspection.
 
-The test foundation:
-
-- uses xUnit and `WebApplicationFactory<Program>`;
-- replaces production authentication with a deterministic test scheme;
-- creates a uniquely named SQL Server database for a run;
-- applies the EF migration chain;
-- exercises authorization and notification behavior;
-- drops only a database whose name matches the guarded `EstateHubTests_<32 hex characters>` pattern.
-
-Tests currently expect a local default SQL Server instance through:
+### API Master Reference
 
 ```text
-Server=.;Integrated Security=True;Encrypt=False;
+API_MASTER_REFERENCE.md
 ```
 
-Do not run the suite on a machine where `Server=.` resolves to a shared or production SQL Server.
+Detailed endpoint-by-endpoint API documentation.
 
-## File storage and delivery
+---
 
-New uploads use the configured local storage abstraction:
-
-```json
-{
-  "FileStorage": {
-    "RootPath": "App_Data/Files",
-    "MaximumImageBytes": 10485760,
-    "MaximumDocumentBytes": 20971520
-  }
-}
-```
-
-The file workflow includes content-type and magic-byte validation, safe server-generated storage keys, owner-only metadata/content access, public-image eligibility checks, and guarded deletion of unreferenced assets.
-
-`GET /api/files/{fileAssetId}` keeps one stable public contract:
-
-- local uploaded files continue through `StorageKey` and local storage;
-- records with a non-empty `ExternalUrl` redirect only when the value is an absolute HTTPS URI;
-- relative URLs and `http:`, `javascript:`, `file:`, and `data:` schemes are rejected;
-- external URLs are not accepted from the upload API.
-
-## Operational and security notes
-
-- Secrets are expected through User Secrets or environment configuration, not source control.
-- SMTP uses STARTTLS; certificate validation is not bypassed.
-- CORS uses an explicit origin allowlist.
-- Authentication endpoints are rate-limited.
-- Company authorization is tenant-safe and database-backed.
-- Platform authorization is isolated from company RBAC.
-- Sensitive fields such as passwords, tokens, storage keys, uploader details, and internal status data are not exposed by public contracts.
-- Public listing/company/project queries enforce publication, verification, company-status, and subscription-aware eligibility rules.
-- Cancellation tokens flow from controllers into asynchronous database and external-service operations.
-- Multi-step mutations use transactions where partial completion would corrupt business state.
-- Application and database failures are not converted into misleading success responses.
-
-Recommended deployment checks:
-
-1. Use a least-privilege SQL login and encrypted transport.
-2. Supply all secrets through the host's secret store.
-3. Review the exact migration script before applying it.
-4. Reconcile `FileAsset.ExternalUrl` before provisioning a fresh database.
-5. Configure trusted forwarded headers before relying on client IP partitioning behind a reverse proxy.
-6. Decide whether Swagger should remain publicly enabled; the current source enables it in every environment.
-7. Ensure the file-storage directory is persistent, writable only by the application identity, and excluded from source control.
-8. Monitor SMTP, database connectivity, authorization failures, and rate-limit rejections without logging credentials or message contents.
-
-## Documentation
-
-| Document | Purpose |
-|---|---|
-| [`API_MASTER_REFERENCE.md`](docs/API_MASTER_REFERENCE.md) | Canonical endpoint-by-endpoint reference for all 164 routes |
-| [`API_ENDPOINT_MATRIX.md`](docs/API_ENDPOINT_MATRIX.md) | Compact route/access/policy/result matrix |
-| [`API_CONTRACTS_REFERENCE.md`](docs/API_CONTRACTS_REFERENCE.md) | Request/response models, validation messages, and enum catalog |
-| [`API_INTEGRATION_AND_TESTING_GUIDE.md`](docs/API_INTEGRATION_AND_TESTING_GUIDE.md) | Frontend integration, auth/RBAC behavior, lifecycle maps, transactions, and QA guidance |
-| [`API_DOCUMENTATION_FINDINGS.md`](docs/API_DOCUMENTATION_FINDINGS.md) | Source-backed gaps and operational findings that should not be hidden |
-| [`ESTATEHUB_MVP_ERD_IMPLEMENTATION_READY.drawio`](ERD/ESTATEHUB_MVP_ERD_IMPLEMENTATION_READY.drawio) | Editable entity-relationship diagram |
-
-The documentation was reconciled against the current controller source with these results:
+### Endpoint Matrix
 
 ```text
-HTTP-mapped action methods:   164
-HTTP mapping attributes:      164
-Effective verb/route pairs:   164
-Distinct verb/route pairs:    164
-Duplicate verb/route pairs:     0
+API_ENDPOINT_MATRIX.md
 ```
 
-## Current limitations and honest caveats
+Compact overview of:
 
-This repository is substantial, but it is not honest to present it as finished in every operational dimension:
+- Routes
+- HTTP methods
+- Access requirements
+- Policies
+- Inputs
+- Success responses
+- Error behavior
 
-- `FileAsset.ExternalUrl` currently has a model-to-migration gap, explained in [Database migrations](#database-migrations).
-- Swagger is currently enabled outside Development because the environment guard in `Program.cs` is commented out.
-- Rate limiting partitions by `HttpContext.Connection.RemoteIpAddress`, while trusted forwarded-header configuration is not visible in the current source. Reverse-proxy deployments must address this deliberately.
-- The permanent automated test suite currently concentrates on authorization and notification behavior; it does not yet provide comprehensive coverage for all 164 routes.
-- Local file storage requires persistent host storage or a deliberate move to object storage for horizontally scaled deployments.
-- Deployment automation and CI status are not represented by a committed workflow, so this README intentionally does not display a fake build badge.
+---
 
-See [`API_DOCUMENTATION_FINDINGS.md`](docs/API_DOCUMENTATION_FINDINGS.md) for the full source-backed findings list.
+### API Contracts Reference
 
-## Contributing
+```text
+API_CONTRACTS_REFERENCE.md
+```
 
-1. Create a focused branch from `main`.
-2. Keep changes within the existing four-layer dependency direction.
-3. Add contracts to Application and implementations to Infrastructure; do not move EF Core into Application or API controllers.
-4. Preserve tenant resolution from the authenticated subject instead of accepting a company ID from client input.
-5. Add or update tests for behavior changes.
-6. Run restore, build, tests, and the pending-model check.
-7. Update the canonical API documentation when routes or contracts change.
-8. Open a pull request describing behavior, security impact, schema impact, and verification evidence.
+Contains reusable:
 
-## License
+- Request contracts
+- Response contracts
+- Validation information
+- Domain enum references
+
+---
+
+### Integration & Testing Guide
+
+```text
+API_INTEGRATION_AND_TESTING_GUIDE.md
+```
+
+Documents frontend integration, authorization behavior, API lifecycles and recommended verification flows.
+
+> This document is an integration/testing guide. A committed automated test project is not currently included in this repository.
+
+---
+
+### Documentation Findings
+
+```text
+API_DOCUMENTATION_FINDINGS.md
+```
+
+Tracks source-backed implementation findings and known gaps.
+
+---
+
+### Backend Project Handoff
+
+```text
+EstateHub_Backend_Project_Handoff.md
+```
+
+Contains deeper project context intended for technical handoff and continued development.
+
+---
+
+# 🔒 Security Considerations
+
+EstateHub currently includes several defensive backend practices:
+
+- JWT signature, issuer, audience and lifetime validation
+- Persisted refresh-session lifecycle
+- Database-backed authorization
+- Tenant-safe company resolution
+- Platform/company authorization separation
+- Authentication endpoint rate limiting
+- Explicit CORS allowlist
+- Secrets outside source control
+- Account lockout
+- File magic-byte validation
+- HTTPS-only external asset redirects
+- Controlled public/private file access
+- Optimistic concurrency
+- Generic public `404` behavior where appropriate
+- Transactional multi-step mutations
+
+---
+
+# ⚠️ Current Limitations
+
+This project is actively evolving and does not attempt to hide unfinished operational work.
+
+Current areas for improvement include:
+
+- Automated test projects are not currently committed to the repository.
+- A CI/CD workflow is not currently included.
+- Swagger is currently enabled in all environments.
+- Rate limiting currently relies on the direct connection IP; trusted forwarded-header configuration should be added when deploying behind a reverse proxy.
+- Local file storage requires persistent host storage and would need to move to object storage for horizontal scaling.
+- The current `FileAsset` runtime model contains an `ExternalUrl` mapping that should be reconciled cleanly with the committed migration history before provisioning a fresh production database.
+
+These are tracked as engineering work rather than presented as completed features.
+
+---
+
+# 🗺️ Roadmap
+
+Planned engineering improvements include:
+
+- Expand automated unit and integration testing
+- Add architecture dependency tests
+- Introduce CI build and test validation
+- Restrict Swagger by environment
+- Add trusted proxy / forwarded-header configuration
+- Move deployable file assets to object storage
+- Improve observability and structured application logging
+- Add health-check endpoints
+- Strengthen deployment automation
+- Continue database and query performance auditing
+
+---
+
+# 🤝 Contributing
+
+When contributing:
+
+1. Keep the existing dependency direction.
+2. Keep Domain independent from infrastructure frameworks.
+3. Define use-case contracts in Application.
+4. Implement external concerns inside Infrastructure.
+5. Keep controllers focused on HTTP concerns.
+6. Never accept tenant identity directly from untrusted client input.
+7. Review authorization impact when adding company operations.
+8. Keep secrets out of source control.
+9. Update the API documentation when contracts change.
+
+---
+
+# 📄 License
 
 EstateHub is licensed under the [MIT License](LICENSE).
 
-## Author
+---
 
-Built by [Ahmed Saad](https://github.com/AhmedSaad-EGY).
+# 👨‍💻 Author
+
+**Ahmed Saad**
+
+Backend .NET Developer
+
+- GitHub: https://github.com/AhmedSaad-EGY
+- LinkedIn: https://www.linkedin.com/in/ahmed-mohamed-saad-b57695356/
